@@ -17,11 +17,14 @@ import zipfile
 import re
 import io
 import collections
+import argparse
+import importlib
+
 
 def compareFiles(stream1, stream2): 
-    """Checks, if streams are the same within the meaning of OI comparer."""
+    """Checks, if streams are the same within the meaning of OI comparator."""
     result = True
-    while(True):
+    while True:
         line1 = stream1.readline()
         line2 = stream2.readline()    
         if not line1 and not line2:
@@ -34,22 +37,23 @@ def compareFiles(stream1, stream2):
     return result
 
 
-def advencedCompareFiles(compared, model):
+def advancedCompareFiles(compared, model):
     """
     Compare two streams and return couple (message, different_line)
     If streams are the same, return none
     """
     
-    def compareLines(compared, model):
-        length = min(len(model), len(compared))
+    def compareLines(compared_line, model_line):
+        length = min(len(model_line), len(compared_line))
         for i in range(0, length):
-            if compared[i] != model[i]:
+            if compared_line[i] != model_line[i]:
                 return i            
         return None
     
     identical = False
-    line = 1       
-    while(True):
+    line = 1
+    message = ""
+    while True:
         comparedLine = compared.readline().split()
         modelLine = model.readline().split()
         if not comparedLine and not modelLine:
@@ -57,8 +61,10 @@ def advencedCompareFiles(compared, model):
             break
 
         cmpResult = compareLines(comparedLine, modelLine)
-        if cmpResult != None:
-            message = "Line %s: read %s expected %s" % (line, comparedLine[cmpResult].decode(), modelLine[cmpResult].decode()) 
+        if cmpResult is not None:
+            message = "Line %s: read %s expected %s" % (line,
+                                                        comparedLine[cmpResult].decode(),
+                                                        modelLine[cmpResult].decode())
             break        
         if len(comparedLine) < len(modelLine):
             message = "Line %s: end of line, expected %s" % (line, modelLine[len(comparedLine)].decode())
@@ -72,16 +78,20 @@ def advencedCompareFiles(compared, model):
     if identical:
         return None
     else:
-        return (message, line)
+        return message, line
 
-def _resultCheck(inStream, outStream, modelOutStream):
+
+def _resultCheck(_, outStream, modelOutStream):
     return compareFiles(outStream, modelOutStream)
 
-def _advencedResultCheck(inStream, outStream, modelOutStream):
-    return advencedCompareFiles(outStream, modelOutStream)[0]
+
+def _advancedResultCheck(_, outStream, modelOutStream):
+    return advancedCompareFiles(outStream, modelOutStream)[0]
+
 
 resultCheck = _resultCheck
-advencedResultCheck = _advencedResultCheck
+advancedResultCheck = _advancedResultCheck
+
 
 def replaceExtension(filename, newExtension):
     """
@@ -90,34 +100,38 @@ def replaceExtension(filename, newExtension):
     """
     newExtension = '.' + newExtension.lstrip(".")
     base = os.path.splitext(filename)[0]
-    return (base + newExtension)
+    return base + newExtension
+
 
 def getFileNameExtension(filename):
     """Returns filename extension (without dot)"""
     return os.path.splitext(filename)[1][1:].lower()
+
 
 def getFilesFromFolder(folder, extensions=None, subdirectories=False):
     """
     Returns list of files from given folder which have
     given extension or extensions. Default returns list of all files.
     """
-    if isinstance(extensions, str): extensions = (extensions,)
+    if isinstance(extensions, str):
+        extensions = (extensions,)
     
     filesList = list()
     if subdirectories:
         for path, _, files in os.walk(folder):
             for name in files:
-                filesList.append( os.path.join(path, name) )
+                filesList.append(os.path.join(path, name))
     else:
-        filesList = [os.path.join(folder,f) for f in os.listdir(folder) if os.path.isfile(os.path.join(folder,f)) ]
+        filesList = [os.path.join(folder, f) for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
     
     if extensions is not None:
-        filesList = [ f for f in filesList if getFileNameExtension(f) in extensions ]  
+        filesList = [f for f in filesList if getFileNameExtension(f) in extensions]
     
     return filesList
 
+
 class AsynchronousStreamRelay(threading.Thread):
-    def __init__(self, fromStream, toStream, closeStreamAfterDone = True):
+    def __init__(self, fromStream, toStream, closeStreamAfterDone=True):
         assert callable(fromStream.read)
         assert callable(toStream.write)
         threading.Thread.__init__(self)
@@ -137,31 +151,31 @@ class AsynchronousStreamRelay(threading.Thread):
                 self.toStream.close()
         except IOError:
             pass
-            
-        
+
     def readChunk(self):
         return self.fromStream.read(self.chunkSize)
 
-def callProcess(commandLine, inputStream, outputStream, timeLimit = float("inf")):     
-    def timeLimiter(process):
+
+def callProcess(commandLine, inputStream, outputStream, timeLimit=float("inf")):
+    def timeLimiter(processHandle):
         pollSeconds = 0.001
         startTime = time.time()
         deadline = startTime + timeLimit    
-        while time.time() < deadline and process.poll() == None:
+        while time.time() < deadline and processHandle.poll() is None:
             time.sleep(pollSeconds)
-        processTime = time.time() - startTime
-        if process.poll() == None:
+        processExecutionTime = time.time() - startTime
+        if processHandle.poll() is None:
             process.terminate()        
-        process.wait()        
-        return processTime
+        processHandle.wait()
+        return processExecutionTime
   
-    if(isinstance(commandLine, str)):
+    if isinstance(commandLine, str):
         commandLine = (commandLine,)
         
-    if(getFileNameExtension(commandLine[0]) == 'py'):
+    if getFileNameExtension(commandLine[0]) == 'py':
         commandLine = (sys.executable,) + commandLine
 
-    popenArgs = {'args' : commandLine, 'stdin': subprocess.PIPE, 'stdout': subprocess.PIPE}    
+    popenArgs = {'args': commandLine, 'stdin': subprocess.PIPE, 'stdout': subprocess.PIPE}
     process = subprocess.Popen(**popenArgs)
         
     stdin_writer = AsynchronousStreamRelay(inputStream, process.stdin)
@@ -175,36 +189,40 @@ def callProcess(commandLine, inputStream, outputStream, timeLimit = float("inf")
     stdout_reader.join()    
     process.stdout.close()   
    
-    return (process.poll(),processTime)
+    return process.poll(), processTime
+
 
 def createFolder(folderName):
     """Creates folder. If folder exists, does nothin."""
     if not os.path.exists(folderName):
         os.makedirs(folderName)
 
+
 def waitForKey():
     input("Press Enter to continue...")    
 
+
 def assertFileExist(filename):
-    if  not os.path.isfile(filename):
-        print("File not found %s" % os.path.basename(filename) )
+    if not os.path.isfile(filename):
+        print("File not found %s" % os.path.basename(filename))
         waitForKey()
         exit()
 
-def assertFolderExist(foldername):
-    if  not os.path.isdir(foldername):
-        print("Folder not found %s" % os.path.basename(foldername) )
+
+def assertFolderExist(folder_name):
+    if not os.path.isdir(folder_name):
+        print("Folder not found %s" % os.path.basename(folder_name))
         waitForKey()
         exit()
+
 
 def saveToFile(string, filename):
     try:
-        fileHandle = open(filename, "wb")
-        fileHandle.write(string)
+        with open(filename, "wb") as fileHandle:
+            fileHandle.write(string)
     except IOError:
         print("Error when writing to file %s" % filename)
-    finally:
-        fileHandle.close()
+
 
 def tryDeleteFile(filename):
     try:
@@ -213,23 +231,25 @@ def tryDeleteFile(filename):
     except OSError:
         return False
 
-def splitTestName(testname):
+
+def splitTestName(test_name):
     """
-    Divide testname in touple (name, number, text after number).
-    If pattern can't be matched, tre touple (testname, "","") is returned.
-    testname must be string
+    Divide test_name in tuple (name, number, text after number).
+    If pattern can't be matched, tre tuple (testname, "","") is returned.
+    test_name must be string
     """
     if not hasattr(splitTestName, "pattern"):
         splitTestName.pattern = re.compile("^([a-zA-Z_]+)(\d+)([a-zA-Z]*)")
         
-    found = splitTestName.pattern.search(testname)
-    if found == None:
-        return (testname, 0, "")
+    found = splitTestName.pattern.search(test_name)
+    if found is None:
+        return test_name, 0, ""
     else:
-        result = found.groups();
-        return (result[0], int(result[1]), result[2])
+        result = found.groups()
+        return result[0], int(result[1]), result[2]
 
-class Test():
+
+class Test:
     @property
     def haveModelOut(self):
         raise NotImplementedError()
@@ -263,31 +283,31 @@ class Test():
     def _genInData(self):
         raise NotImplementedError()
     
-    def saveInData(self, folder = "."):
+    def saveInData(self, folder="."):
         assertFolderExist(folder)
         filename = "%s.in" % self.testName
         saveToFile(self.inData, os.path.join(folder, filename))
         
-    def saveModelOutData(self, folder = "."):
+    def saveModelOutData(self, folder="."):
         assertFolderExist(folder)
         filename = "%s.out" % self.testName
         saveToFile(self.modelOutData, os.path.join(folder, filename))
     
 
-class TestProvider():
+class TestProvider:
     def getTests(self):
         raise NotImplementedError()
     
     def sortTests(self, testList):
         assert isinstance(testList, list)
-        splitTestPath = lambda testName: splitTestName(os.path.basename(testName))        
-        testList.sort(key = lambda testName: splitTestPath(testName))
-        testList.sort(key = lambda testName: not splitTestPath(testName)[2] == "ocen")
+        splitTestPath = lambda testName: splitTestName(os.path.basename(testName))
+        testList.sort(key=lambda testName: splitTestPath(testName))
+        testList.sort(key=lambda testName: not splitTestPath(testName)[2] == "ocen")
  
     def onlyWithExtension(self, testList, extension):
         assert isinstance(extension, str)
         assert isinstance(testList, list)
-        return [ filename for filename in testList if getFileNameExtension( os.path.basename(filename)  ) == extension ]
+        return [filename for filename in testList if getFileNameExtension(os.path.basename(filename)) == extension]
     
     def getOutFilePath(self, inFilePath):
         modelOutFilePath = re.sub(r'\.in$', r'.out', inFilePath, flags=re.IGNORECASE)
@@ -305,7 +325,7 @@ class TestFromFolder(Test):
     
     @property
     def haveModelOut(self):
-        return self.modelOutFilename != None
+        return self.modelOutFilename is not None
     
     def _genInData(self):
         inFile = open(self.inFilename, 'rb')
@@ -334,13 +354,14 @@ class TestFromFolderProvider(TestProvider):
                 
             yield TestFromFolder(inFile, modelOutFile)      
 
+
 class RandomTest(Test):
-    def __init__(self, generatorPath, testNumber, testName = None, modelSolutionPath = None, nameSuffix = ""):
+    def __init__(self, generatorPath, testNumber, testName=None, modelSolutionPath=None, nameSuffix=""):
         assertFileExist(generatorPath)
-        if modelSolutionPath != None:
+        if modelSolutionPath is not None:
             assertFileExist(modelSolutionPath)
         
-        if testName != None:
+        if testName is not None:
             self.testName = testName
         else:
             self.testName = "random"
@@ -352,11 +373,11 @@ class RandomTest(Test):
               
     @property
     def haveModelOut(self):
-        return self.modelSolutionPath != None
+        return self.modelSolutionPath is not None
     
     def _genInData(self):        
         inStream = io.BytesIO()
-        generatorArgsStream = io.BytesIO( str(self.testNumber).encode() )
+        generatorArgsStream = io.BytesIO(str(self.testNumber).encode())
         code, _ = callProcess(self.generatorPath, generatorArgsStream, inStream)
         
         if code != 0:
@@ -383,9 +404,9 @@ class RandomTest(Test):
     
     
 class RandomTestProvider(TestProvider):
-    def __init__(self, testGenerator, testName, modelSolutionPath = None, nameSuffix = "", testLimit = None):
+    def __init__(self, testGenerator, testName, modelSolutionPath=None, nameSuffix="", testLimit=None):
         assertFileExist(testGenerator)
-        if modelSolutionPath != None:
+        if modelSolutionPath is not None:
             assertFileExist(modelSolutionPath)
         self.testGenerator = testGenerator
         self.testName = testName
@@ -395,12 +416,13 @@ class RandomTestProvider(TestProvider):
     
     def getTests(self):
         index = 0
-        while(True):
-            index = index + 1
+        while True:
+            index += 1
             yield RandomTest(self.testGenerator, index, self.testName, self.modelSolutionPath, self.nameSuffix)            
             if self.testLimit is not None and self.testLimit <= index:
                 break 
- 
+
+
 class TestFromZip(Test):
     def __init__(self, zipFile, inFilename, modelOutFilename):
         self.zipFile = zipFile
@@ -411,7 +433,7 @@ class TestFromZip(Test):
     
     @property  
     def haveModelOut(self):
-        return self.modelOutFilename != None
+        return self.modelOutFilename is not None
     
     def _genInData(self):
         fileInData = self.zipFile.open(self.inFilename, 'r')
@@ -422,12 +444,13 @@ class TestFromZip(Test):
         fileModelOutData = self.zipFile.open(self.modelOutFilename, 'r')
         self._modelOutData = fileModelOutData.read()
         fileModelOutData.close()
-               
+
+
 class TestFromZipProvider(TestProvider):
     def __init__(self, filename):
         assertFileExist(filename)
         self.zipFile = zipfile.ZipFile(filename)
-        if not self.zipFile.testzip() == None:
+        if self.zipFile.testzip() is not None:
             raise zipfile.BadZipfile()
         
         namelist = self.zipFile.namelist()
@@ -441,12 +464,13 @@ class TestFromZipProvider(TestProvider):
         for filename in self.fileInList:  
             modelOutFile = self.getOutFilePath(filename)
                         
-            if not modelOutFile in self.fileOutList:
+            if modelOutFile not in self.fileOutList:
                 modelOutFile = None
                 
             yield TestFromZip(self.zipFile, filename, modelOutFile)   
 
-class RunResult():
+
+class RunResult:
     def __init__(self):
         self.returnCode = None
         self.processTime = None
@@ -458,7 +482,7 @@ class RunResult():
         return io.BytesIO(self.outData)
     
 
-class BasicRunner():
+class BasicRunner:
     def __init__(self, programName):
         assertFileExist(programName)            
         self.programName = programName
@@ -471,11 +495,7 @@ class BasicRunner():
     def doRun(self, command, test):
         runResult = RunResult()
         outStream = io.BytesIO()     
-        runResult.returnCode, runResult.processTime = callProcess(command, 
-                                                                 test.inStream, 
-                                                                 outStream, 
-                                                                 self.timeLimit
-                                                                 )
+        runResult.returnCode, runResult.processTime = callProcess(command, test.inStream, outStream, self.timeLimit)
         runResult.outData = outStream.getvalue()
         
         runResult.result = "OK"
@@ -496,10 +516,9 @@ class BasicRunner():
     
      
 class OITimeToolRunner(BasicRunner):
-    def __init__(self, programName, oitimetoolPath = ""):
-        assertFileExist(programName)
-        self.programName = programName
-        
+    def __init__(self, programName, oitimetoolPath=""):
+        BasicRunner.__init__(self, programName)
+
         self.oitimetoolDllPath = "oitimetool\oitimetool.dll"
         self.pinPath = "oitimetool\pin\pin.exe"
         self.oitimetoolDllPath = os.path.join(oitimetoolPath, self.oitimetoolDllPath)
@@ -517,7 +536,7 @@ class OITimeToolRunner(BasicRunner):
         return self.doRun(self.oitimetoolCommand, test)
 
 
-class TestCounter():
+class TestCounter:
     def __init__(self):
         self.queue = collections.deque()
     
@@ -529,12 +548,10 @@ class TestCounter():
             return len(self.queue) / timeRange
     
     def testDone(self):
-        self.queue.append( time.time() )
+        self.queue.append(time.time())
         while len(self.queue) >= 10:
             self.queue.popleft()
 
-
-import argparse
 
 def getProviderListFromArgs(args, parser):
     testProviderList = list()
@@ -542,29 +559,30 @@ def getProviderListFromArgs(args, parser):
         if getFileNameExtension(zipFile) != "zip":
             parser.error("received not zip file")            
         assertFileExist(zipFile) 
-        value = (TestFromZipProvider, (zipFile,) )
+        value = (TestFromZipProvider, (zipFile,))
         testProviderList.append(value)
         
     for folder in args.folder:
         assertFolderExist(folder) 
-        value = (TestFromFolderProvider, (folder,) ) 
+        value = (TestFromFolderProvider, (folder,))
         testProviderList.append(value)
         
-    if args.generator != None:
+    if args.generator is not None:
         assertFileExist(args.generator[0])
         assertFileExist(args.generator[1])
         generatorPath = args.generator[0]
         modelPath = args.generator[1]
         testName = os.path.splitext(args.program)[0]
-        value = (RandomTestProvider, (generatorPath, testName, modelPath) ) 
+        value = (RandomTestProvider, (generatorPath, testName, modelPath))
         testProviderList.append(value)
         
     return testProviderList
 
+
 def getRunnerFromArgs(args, parser):
     runner = None
-    if args.oitimetool != None:
-        if args.oitimetool == True:
+    if args.oitimetool is not None:
+        if args.oitimetool:
             runner = OITimeToolRunner(args.program)  
         else:
             runner = OITimeToolRunner(args.program, args.oitimetool)  
@@ -572,10 +590,11 @@ def getRunnerFromArgs(args, parser):
         runner = BasicRunner(args.program)
     
     runner.ignoreOutput = args.ignore_out
-    if args.time_limit != None:
+    if args.time_limit is not None:
         runner.timeLimit = args.time_limit
         
     return runner
+
 
 def testingLoop(testProviderList, runner, args):    
     number_of_fails = 0
@@ -583,7 +602,7 @@ def testingLoop(testProviderList, runner, args):
     for testProviderArgs in testProviderList:    
         TestProviderClass = testProviderArgs[0]
         testProviderArgs = testProviderArgs[1]
-        print("Procesing tests from \"%s\"" % (testProviderArgs,) )
+        print("Processing tests from \"%s\"" % (testProviderArgs,))
         testProvider = TestProviderClass(*testProviderArgs)
         for test in testProvider.getTests():
             if args.break_after is not None and number_of_fails >= args.break_after:
@@ -604,20 +623,18 @@ def testingLoop(testProviderList, runner, args):
             number_of_tests += 1
             if runResult.result not in ("OK", "IGNORE"):
                 number_of_fails += 1
-                print(advencedResultCheck(test.inStream, runResult.outStream, test.modelOutStream))
+                print(advancedResultCheck(test.inStream, runResult.outStream, test.modelOutStream))
                 
-                if args.wrong_folder != None:
+                if args.wrong_folder is not None:
                     createFolder(args.wrong_folder)
-                    test.saveInData(folder = args.wrong_folder)
-                    test.saveModelOutData(folder = args.wrong_folder)
+                    test.saveInData(folder=args.wrong_folder)
+                    test.saveModelOutData(folder=args.wrong_folder)
                     
                 if args.wait_after_error:
                     waitForKey()
                           
             print("------------------------")
-            
-            
-                
+
 
 def main():
     parser = argparse.ArgumentParser(description='Runs ultima, script for testing programs for OI-like contests.')
@@ -647,30 +664,25 @@ def main():
         try:
             if getFileNameExtension(args.checker) == 'py':
                 args.checker = os.path.splitext(args.checker)[0]
-            
-            import importlib
+
             checker = importlib.import_module(args.checker)
             
             if not hasattr(checker, 'check'):
                 print("Module %s don't have check function!" % args.checker)
                 exit()
-                
-            #print("Nadpisalem funkcje sprawdzajace.")
+
             global resultCheck
-            global advencedResultCheck
+            global advancedResultCheck
             resultCheck = lambda inS, outS, modelS: checker.check(inS, outS, modelS) == "OK"
-            advencedResultCheck = lambda inS, outS, modelS: checker.check(inS, outS, modelS)
+            advancedResultCheck = lambda inS, outS, modelS: checker.check(inS, outS, modelS)
             
         except ImportError:
             print("Could not import %s!" % args.checker)
             exit()
 
-    
     testingLoop(testProviderList, runner, args)    
-       
-       
-#import cProfile
-        
+
+
 if __name__ == "__main__":
     try:
         main()
