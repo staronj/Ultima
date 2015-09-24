@@ -1,8 +1,13 @@
+# -*- coding: utf-8 -*-
 import sys
-import io
 import os
 import zipfile
 import tarfile
+
+if sys.version_info < (3, 0):
+    print("Python version should be 3.0 or more.")
+    exit()
+
 
 def replaceExtension(filename, newExtension):
     """
@@ -11,7 +16,8 @@ def replaceExtension(filename, newExtension):
     """
     newExtension = '.' + newExtension.lstrip(".")
     base = os.path.splitext(filename)[0]
-    return (base + newExtension)
+    return base + newExtension
+
 
 def getFileNameExtension(filename):
     """Returns filename extension (without dot)"""
@@ -19,7 +25,7 @@ def getFileNameExtension(filename):
 
 
 def main():
-    if len(sys.argv) not in range(2,4) or not os.path.isfile(sys.argv[1]) or getFileNameExtension(sys.argv[1]) != 'tar':
+    if len(sys.argv) not in range(2, 4) or not os.path.isfile(sys.argv[1]) or getFileNameExtension(sys.argv[1]) != 'tar':
         print("Usage: tar2zip.py TAR_FILE [OUTPUT]")
         return
 
@@ -42,18 +48,17 @@ def main():
         print("I will not overwrite existing file!")
         return
 
-
     source = tarfile.open(source)
     sink = zipfile.ZipFile(sink, 'w', zipfile.ZIP_DEFLATED, True)
 
-    number_of_files = 0;
+    number_of_files = 0
     for member in source.getmembers():
         if member.isfile():
             sink.writestr(member.name, source.extractfile(member).read())
-            number_of_files = number_of_files + 1
+            number_of_files += 1
             sys.stdout.write('\r%s files copied.' % number_of_files)
 
-    print("\nSuccesfully done. %s files packed." % number_of_files)
+    print("\nSuccessfully done. %s files packed." % number_of_files)
         
 if __name__ == "__main__":
     main()
