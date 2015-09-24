@@ -49,44 +49,38 @@ def advancedCompareFiles(compared, model):
             if compared_line[i] != model_line[i]:
                 return i            
         return None
-    
-    identical = False
+
     line = 1
-    message = ""
     while True:
         comparedLine = compared.readline().split()
         modelLine = model.readline().split()
         if not comparedLine and not modelLine:
-            identical = True
-            break
+            return None
 
         cmpResult = compareLines(comparedLine, modelLine)
         if cmpResult is not None:
             message = "Line %s: read %s expected %s" % (line,
                                                         comparedLine[cmpResult].decode(),
                                                         modelLine[cmpResult].decode())
-            break        
+            return message, line
+
         if len(comparedLine) < len(modelLine):
             message = "Line %s: end of line, expected %s" % (line, modelLine[len(comparedLine)].decode())
-            break
+            return message, line
+
         elif len(comparedLine) > len(modelLine):
             message = "Line %s: rubbish at the end of line." % line
-            break           
-        
+            return message, line
+
         line += 1
-               
-    if identical:
-        return None
-    else:
-        return message, line
 
 
-def _resultCheck(_, outStream, modelOutStream):
-    return compareFiles(outStream, modelOutStream)
+def _resultCheck(_, outputStream, modelOutputStream):
+    return compareFiles(outputStream, modelOutputStream)
 
 
-def _advancedResultCheck(_, outStream, modelOutStream):
-    return advancedCompareFiles(outStream, modelOutStream)[0]
+def _advancedResultCheck(_, outputStream, modelOutputStream):
+    return advancedCompareFiles(outputStream, modelOutputStream)[0]
 
 
 resultCheck = _resultCheck
@@ -122,21 +116,25 @@ def getFilesFromFolder(folder, extensions=None, subdirectories=False):
             for name in files:
                 filesList.append(os.path.join(path, name))
     else:
-        filesList = [os.path.join(folder, f) for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
+        filesList = [os.path.join(folder, file)
+                     for file in os.listdir(folder)
+                     if os.path.isfile(os.path.join(folder, file))]
     
     if extensions is not None:
-        filesList = [f for f in filesList if getFileNameExtension(f) in extensions]
+        filesList = [file
+                     for file in filesList
+                     if getFileNameExtension(file) in extensions]
     
     return filesList
 
 
 class AsynchronousStreamRelay(threading.Thread):
-    def __init__(self, fromStream, toStream, closeStreamAfterDone=True):
-        assert callable(fromStream.read)
-        assert callable(toStream.write)
+    def __init__(self, sourceStream, sinkStream, closeStreamAfterDone=True):
+        assert callable(sourceStream.read)
+        assert callable(sinkStream.write)
         threading.Thread.__init__(self)
-        self.fromStream = fromStream
-        self.toStream = toStream        
+        self.sourceStream = sourceStream
+        self.sinkStream = sinkStream
         self.chunkSize = 1024
         self.closeStreamAfterDone = closeStreamAfterDone
         
@@ -144,16 +142,16 @@ class AsynchronousStreamRelay(threading.Thread):
         try:
             chunk = self.readChunk()
             while chunk:
-                self.toStream.write(chunk)
+                self.sinkStream.write(chunk)
                 chunk = self.readChunk()
                 
             if self.closeStreamAfterDone:   
-                self.toStream.close()
+                self.sinkStream.close()
         except IOError:
             pass
 
     def readChunk(self):
-        return self.fromStream.read(self.chunkSize)
+        return self.sourceStream.read(self.chunkSize)
 
 
 def callProcess(commandLine, inputStream, outputStream, timeLimit=float("inf")):
@@ -193,7 +191,7 @@ def callProcess(commandLine, inputStream, outputStream, timeLimit=float("inf")):
 
 
 def createFolder(folderName):
-    """Creates folder. If folder exists, does nothin."""
+    """Creates folder. If folder exists, does nothing."""
     if not os.path.exists(folderName):
         os.makedirs(folderName)
 
@@ -250,66 +248,74 @@ def splitTestName(test_name):
 
 
 class Test:
+    def __init__(self, testName):
+        self.testName = testName
+        self._inputData = None
+        self._modelOutputData = None
+
     @property
-    def haveModelOut(self):
+    def haveModelOutput(self):
         raise NotImplementedError()
        
     @property
-    def inStream(self):
-        return io.BytesIO(self.inData)
+    def inputStream(self):
+        return io.BytesIO(self.inputData)
     
     @property
-    def modelOutStream(self):
-        return io.BytesIO(self.modelOutData)
+    def modelOutputStream(self):
+        return io.BytesIO(self.modelOutputData)
     
     @property
-    def inData(self):
-        if not hasattr(self, "_inData"):
-            self._genInData()
-        return self._inData
+    def inputData(self):
+        if self._inputData is None:
+            self._generateInputData()
+        return self._inputData
     
     @property
-    def modelOutData(self):   
-        if not self.haveModelOut:
+    def modelOutputData(self):
+        if not self.haveModelOutput:
             raise Exception("Test don't have model out!")
             
-        if not hasattr(self, "_modelOutData"):
-            self._genModelOutData()
-        return self._modelOutData     
+        if self._modelOutputData is None:
+            self._generateModelOutputData()
+        return self._modelOutputData
     
-    def _genModelOutData(self):
+    def _generateModelOutputData(self):
         raise NotImplementedError()
     
-    def _genInData(self):
+    def _generateInputData(self):
         raise NotImplementedError()
     
-    def saveInData(self, folder="."):
+    def saveInputData(self, folder="."):
         assertFolderExist(folder)
         filename = "%s.in" % self.testName
-        saveToFile(self.inData, os.path.join(folder, filename))
+        saveToFile(self.inputData, os.path.join(folder, filename))
         
-    def saveModelOutData(self, folder="."):
+    def saveModelOutputData(self, folder="."):
         assertFolderExist(folder)
         filename = "%s.out" % self.testName
-        saveToFile(self.modelOutData, os.path.join(folder, filename))
+        saveToFile(self.modelOutputData, os.path.join(folder, filename))
     
 
 class TestProvider:
     def getTests(self):
         raise NotImplementedError()
-    
-    def sortTests(self, testList):
+
+    @staticmethod
+    def sortTests(testList):
         assert isinstance(testList, list)
         splitTestPath = lambda testName: splitTestName(os.path.basename(testName))
         testList.sort(key=lambda testName: splitTestPath(testName))
         testList.sort(key=lambda testName: not splitTestPath(testName)[2] == "ocen")
- 
-    def onlyWithExtension(self, testList, extension):
+
+    @staticmethod
+    def onlyWithExtension(testList, extension):
         assert isinstance(extension, str)
         assert isinstance(testList, list)
         return [filename for filename in testList if getFileNameExtension(os.path.basename(filename)) == extension]
-    
-    def getOutFilePath(self, inFilePath):
+
+    @staticmethod
+    def getOutFilePath(inFilePath):
         modelOutFilePath = re.sub(r'\.in$', r'.out', inFilePath, flags=re.IGNORECASE)
         modelOutFilePath = re.sub(r'^in(?=[/\\])', r'out', modelOutFilePath)
         modelOutFilePath = re.sub(r'([/\\])in(?=[/\\])', r'\1out', modelOutFilePath) 
@@ -320,22 +326,21 @@ class TestFromFolder(Test):
     def __init__(self, inFilename, modelOutFilename):
         self.inFilename = inFilename
         self.modelOutFilename = modelOutFilename
-        testBaseName = os.path.basename(inFilename)
-        self.testName = os.path.splitext(testBaseName)[0]
+        inFilenameBasename = os.path.basename(inFilename)
+        testName = os.path.splitext(inFilenameBasename)[0]
+        Test.__init__(self, testName)
     
     @property
-    def haveModelOut(self):
+    def haveModelOutput(self):
         return self.modelOutFilename is not None
     
-    def _genInData(self):
-        inFile = open(self.inFilename, 'rb')
-        self._inData = inFile.read()
-        inFile.close()        
+    def _generateInputData(self):
+        with open(self.inFilename, 'rb') as inFile:
+            self._inputData = inFile.read()
     
-    def _genModelOutData(self):       
-        modelOutFile = open(self.modelOutFilename, 'rb')
-        self._modelOutData = modelOutFile.read()
-        modelOutFile.close()
+    def _generateModelOutputData(self):
+        with open(self.modelOutFilename, 'rb') as modelOutFile:
+            self._modelOutputData = modelOutFile.read()
   
 
 class TestFromFolderProvider(TestProvider):
@@ -356,49 +361,45 @@ class TestFromFolderProvider(TestProvider):
 
 
 class RandomTest(Test):
-    def __init__(self, generatorPath, testNumber, testName=None, modelSolutionPath=None, nameSuffix=""):
+    def __init__(self, generatorPath, testNumber, testNamePrefix="random", modelSolutionPath=None, testNameSuffix=""):
         assertFileExist(generatorPath)
         if modelSolutionPath is not None:
             assertFileExist(modelSolutionPath)
-        
-        if testName is not None:
-            self.testName = testName
-        else:
-            self.testName = "random"
-        
+
+        testName = "%s%s%s" % (testNamePrefix, testNumber, testNameSuffix)
+        Test.__init__(self, testName)
         self.testNumber = testNumber
-        self.testName = "%s%s%s" % (self.testName, self.testNumber, nameSuffix)
         self.generatorPath = generatorPath   
         self.modelSolutionPath = modelSolutionPath    
               
     @property
-    def haveModelOut(self):
+    def haveModelOutput(self):
         return self.modelSolutionPath is not None
     
-    def _genInData(self):        
-        inStream = io.BytesIO()
+    def _generateInputData(self):
+        inputStream = io.BytesIO()
         generatorArgsStream = io.BytesIO(str(self.testNumber).encode())
-        code, _ = callProcess(self.generatorPath, generatorArgsStream, inStream)
+        code, _ = callProcess(self.generatorPath, generatorArgsStream, inputStream)
         
         if code != 0:
             print("\nCritical Error. In generator crash. Exiting.")
             exit()
             
-        self._inData = inStream.getvalue()
-        if len(self._inData) == 0:
+        self._inputData = inputStream.getvalue()
+        if len(self._inputData) == 0:
             print("\nCritical Error. In generator wrote no output. Exiting.")
             exit()
             
-    def _genModelOutData(self):      
-        modelOutStream = io.BytesIO()
-        code, _ = callProcess(self.modelSolutionPath, self.inStream, modelOutStream)
+    def _generateModelOutputData(self):
+        modelOutputStream = io.BytesIO()
+        code, _ = callProcess(self.modelSolutionPath, self.inputStream, modelOutputStream)
         
         if code != 0:
             print("\nCritical Error. Model solution crash. Exiting.")
             exit()
         
-        self._modelOutData = modelOutStream.getvalue()
-        if len(self._modelOutData) == 0:
+        self._modelOutputData = modelOutputStream.getvalue()
+        if len(self._modelOutputData) == 0:
             print("\nCritical Error. Model wrote no output. Exiting.")
             exit()
     
@@ -425,25 +426,24 @@ class RandomTestProvider(TestProvider):
 
 class TestFromZip(Test):
     def __init__(self, zipFile, inFilename, modelOutFilename):
+        testBaseName = os.path.basename(inFilename)
+        testName = os.path.splitext(testBaseName)[0]
+        Test.__init__(self, testName)
         self.zipFile = zipFile
         self.inFilename = inFilename
         self.modelOutFilename = modelOutFilename
-        testBaseName = os.path.basename(inFilename)
-        self.testName = os.path.splitext(testBaseName)[0]
-    
+
     @property  
-    def haveModelOut(self):
+    def haveModelOutput(self):
         return self.modelOutFilename is not None
     
-    def _genInData(self):
-        fileInData = self.zipFile.open(self.inFilename, 'r')
-        self._inData = fileInData.read()
-        fileInData.close()
+    def _generateInputData(self):
+        with self.zipFile.open(self.inFilename, 'r') as fileInputData:
+            self._inputData = fileInputData.read()
         
-    def _genModelOutData(self):       
-        fileModelOutData = self.zipFile.open(self.modelOutFilename, 'r')
-        self._modelOutData = fileModelOutData.read()
-        fileModelOutData.close()
+    def _generateModelOutputData(self):
+        with self.zipFile.open(self.modelOutFilename, 'r') as fileModelOutputData:
+            self._modelOutputData = fileModelOutputData.read()
 
 
 class TestFromZipProvider(TestProvider):
@@ -475,11 +475,11 @@ class RunResult:
         self.returnCode = None
         self.processTime = None
         self.result = None
-        self.outData = None
+        self.outputData = None
         
     @property
-    def outStream(self):
-        return io.BytesIO(self.outData)
+    def outputStream(self):
+        return io.BytesIO(self.outputData)
     
 
 class BasicRunner:
@@ -494,9 +494,9 @@ class BasicRunner:
     
     def doRun(self, command, test):
         runResult = RunResult()
-        outStream = io.BytesIO()     
-        runResult.returnCode, runResult.processTime = callProcess(command, test.inStream, outStream, self.timeLimit)
-        runResult.outData = outStream.getvalue()
+        outputStream = io.BytesIO()
+        runResult.returnCode, runResult.processTime = callProcess(command, test.inputStream, outputStream, self.timeLimit)
+        runResult.outputData = outputStream.getvalue()
         
         runResult.result = "OK"
         if runResult.processTime >= self.timeLimit:
@@ -505,11 +505,11 @@ class BasicRunner:
             runResult.result = "RE"
         elif self.ignoreOutput:
             runResult.result = "IGNORE"
-        elif len(runResult.outData) == 0:
+        elif len(runResult.outputData) == 0:
             runResult.result = "NF"
-        elif not test.haveModelOut:
+        elif not test.haveModelOutput:
             runResult.result = "NOMODEL"        
-        elif not resultCheck(test.inStream, runResult.outStream, test.modelOutStream):
+        elif not resultCheck(test.inputStream, runResult.outputStream, test.modelOutputStream):
             runResult.result = "WA"                  
                     
         return runResult
@@ -582,7 +582,7 @@ def getProviderListFromArgs(args, parser):
 def getRunnerFromArgs(args, parser):
     runner = None
     if args.oitimetool is not None:
-        if args.oitimetool:
+        if args.oitimetool == True:
             runner = OITimeToolRunner(args.program)  
         else:
             runner = OITimeToolRunner(args.program, args.oitimetool)  
@@ -623,12 +623,12 @@ def testingLoop(testProviderList, runner, args):
             number_of_tests += 1
             if runResult.result not in ("OK", "IGNORE"):
                 number_of_fails += 1
-                print(advancedResultCheck(test.inStream, runResult.outStream, test.modelOutStream))
+                print(advancedResultCheck(test.inputStream, runResult.outputStream, test.modelOutputStream))
                 
                 if args.wrong_folder is not None:
                     createFolder(args.wrong_folder)
-                    test.saveInData(folder=args.wrong_folder)
-                    test.saveModelOutData(folder=args.wrong_folder)
+                    test.saveInputData(folder=args.wrong_folder)
+                    test.saveModelOutputData(folder=args.wrong_folder)
                     
                 if args.wait_after_error:
                     waitForKey()
