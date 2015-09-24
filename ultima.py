@@ -1,14 +1,5 @@
 ﻿# -*- coding: utf-8 -*-
 import sys
-if sys.version_info < (3, 0):
-    print("Python version should be 3.0 or more.")
-    exit()
-
-"""
-Ultima - script for testing programs in programing contests.
-Jakub Staroń, 2013 - 2014, for Surykatki FTW
-"""
-
 import os
 import subprocess
 import time
@@ -20,8 +11,17 @@ import collections
 import argparse
 import importlib
 
+"""
+Ultima - script for testing programs in programing contests.
+Jakub Staroń, 2013 - 2015, for Surykatki FTW
+"""
 
-def compareFiles(stream1, stream2): 
+if sys.version_info < (3, 0):
+    print("Python version should be 3.0 or more.")
+    exit()
+
+
+def compareStreams(stream1, stream2):
     """Checks, if streams are the same within the meaning of OI comparator."""
     result = True
     while True:
@@ -37,7 +37,7 @@ def compareFiles(stream1, stream2):
     return result
 
 
-def advancedCompareFiles(compared, model):
+def advancedCompareStreams(compared, model):
     """
     Compare two streams and return couple (message, different_line)
     If streams are the same, return none
@@ -76,11 +76,11 @@ def advancedCompareFiles(compared, model):
 
 
 def _resultCheck(_, outputStream, modelOutputStream):
-    return compareFiles(outputStream, modelOutputStream)
+    return compareStreams(outputStream, modelOutputStream)
 
 
 def _advancedResultCheck(_, outputStream, modelOutputStream):
-    return advancedCompareFiles(outputStream, modelOutputStream)[0]
+    return advancedCompareStreams(outputStream, modelOutputStream)[0]
 
 
 resultCheck = _resultCheck
@@ -318,7 +318,9 @@ class TestProvider:
     @staticmethod
     def sortTests(testList):
         assert isinstance(testList, list)
-        splitTestPath = lambda testName: splitTestName(os.path.basename(testName))
+
+        def splitTestPath(testName):
+            return splitTestName(os.path.basename(testName))
         testList.sort(key=lambda testName: splitTestPath(testName))
         testList.sort(key=lambda testName: not splitTestPath(testName)[2] == "ocen")
 
@@ -493,7 +495,7 @@ class RunResult:
         self.returnCode = None
         self.processTime = None
         self.result = None
-        self.outputData = None
+        self.outputData = b""
         
     @property
     def outputStream(self):
@@ -537,16 +539,13 @@ class OITimeToolRunner(BasicRunner):
     def __init__(self, programName, oitimetoolPath=""):
         BasicRunner.__init__(self, programName)
 
+        self.timeLimit = 30
         self.oitimetoolDllPath = "oitimetool\oitimetool.dll"
         self.pinPath = "oitimetool\pin\pin.exe"
         self.oitimetoolDllPath = os.path.join(oitimetoolPath, self.oitimetoolDllPath)
         self.pinPath = os.path.join(oitimetoolPath, self.pinPath)
-        
         self.oitimetoolCommand = (self.pinPath, "-t", self.oitimetoolDllPath, "--", self.programName)
-        self.timeLimit = 30
-        self.ignoreOutput = False
-        self.haveErrors = False
-        
+
         assertFileExist(self.oitimetoolDllPath)
         assertFileExist(self.pinPath)
         
@@ -598,12 +597,8 @@ def getProviderListFromArgs(args, parser):
 
 
 def getRunnerFromArgs(args):
-    runner = None
     if args.oitimetool is not None:
-        if args.oitimetool == True:
-            runner = OITimeToolRunner(args.program)  
-        else:
-            runner = OITimeToolRunner(args.program, args.oitimetool)  
+        runner = OITimeToolRunner(args.program, args.oitimetool)
     else:
         runner = BasicRunner(args.program)
     
@@ -668,7 +663,7 @@ def main():
     parser.add_argument('--save_to_folder', '-s', help='save failed tests to specified folder', metavar="FOLDER", dest="wrong_folder")
     parser.add_argument('--ignore_out', '-i', help='ignore program out', action='store_true', default=False)
     parser.add_argument('--time_limit', '-t', help='set execution time limit', type=float)
-    parser.add_argument('--oitimetool', '-o', help='use oitimetool, optionally path to oitimetool folder', nargs='?', const=True)
+    parser.add_argument('--oitimetool', '-o', help='use oitimetool, optionally path to oitimetool folder', nargs='?', const="")
     parser.add_argument('--keyword', '-k', help='run only tests with specified keyword in name')
     parser.add_argument('--break_after', '-b', help='break testing after N fails', type=int, metavar='N' )
     parser.add_argument('--tests_limit', '-n', help='run only N first tests', type=int, metavar='N' )
