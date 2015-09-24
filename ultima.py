@@ -268,7 +268,7 @@ class Test:
     @property
     def inputData(self):
         if self._inputData is None:
-            self._generateInputData()
+            self._inputData = self._generateInputData()
         return self._inputData
     
     @property
@@ -277,15 +277,29 @@ class Test:
             raise Exception("Test don't have model out!")
             
         if self._modelOutputData is None:
-            self._generateModelOutputData()
+            self._modelOutputData = self._generateModelOutputData()
         return self._modelOutputData
-    
-    def _generateModelOutputData(self):
-        raise NotImplementedError()
-    
+
     def _generateInputData(self):
+        """Should generate input data.
+        Function must be overwritten in inheriting class.
+        Function should generate input data,
+        ie read from a file, run generator.
+        It's guaranteed, that it will be called only once
+        and result will be cached.
+        """
         raise NotImplementedError()
-    
+
+    def _generateModelOutputData(self):
+        """Should generate output data.
+        Function must be overwritten in inheriting class.
+        Function should generate model output data,
+        ie read from a file, run model solution.
+        It's guaranteed, that it will be called only once
+        and result will be cached.
+        """
+        raise NotImplementedError()
+
     def saveInputData(self, folder="."):
         assertFolderExist(folder)
         filename = "%s.in" % self.testName
@@ -336,11 +350,11 @@ class TestFromFolder(Test):
     
     def _generateInputData(self):
         with open(self.inFilename, 'rb') as inFile:
-            self._inputData = inFile.read()
+            return inFile.read()
     
     def _generateModelOutputData(self):
         with open(self.modelOutFilename, 'rb') as modelOutFile:
-            self._modelOutputData = modelOutFile.read()
+            return modelOutFile.read()
   
 
 class TestFromFolderProvider(TestProvider):
@@ -385,10 +399,12 @@ class RandomTest(Test):
             print("\nCritical Error. In generator crash. Exiting.")
             exit()
             
-        self._inputData = inputStream.getvalue()
-        if len(self._inputData) == 0:
+        inputData = inputStream.getvalue()
+        if len(inputData) == 0:
             print("\nCritical Error. In generator wrote no output. Exiting.")
             exit()
+
+        return inputData
             
     def _generateModelOutputData(self):
         modelOutputStream = io.BytesIO()
@@ -398,10 +414,12 @@ class RandomTest(Test):
             print("\nCritical Error. Model solution crash. Exiting.")
             exit()
         
-        self._modelOutputData = modelOutputStream.getvalue()
-        if len(self._modelOutputData) == 0:
+        modelOutputData = modelOutputStream.getvalue()
+        if len(modelOutputData) == 0:
             print("\nCritical Error. Model wrote no output. Exiting.")
             exit()
+
+        return modelOutputData
     
     
 class RandomTestProvider(TestProvider):
@@ -439,11 +457,11 @@ class TestFromZip(Test):
     
     def _generateInputData(self):
         with self.zipFile.open(self.inFilename, 'r') as fileInputData:
-            self._inputData = fileInputData.read()
+            return fileInputData.read()
         
     def _generateModelOutputData(self):
         with self.zipFile.open(self.modelOutFilename, 'r') as fileModelOutputData:
-            self._modelOutputData = fileModelOutputData.read()
+            return fileModelOutputData.read()
 
 
 class TestFromZipProvider(TestProvider):
@@ -579,7 +597,7 @@ def getProviderListFromArgs(args, parser):
     return testProviderList
 
 
-def getRunnerFromArgs(args, parser):
+def getRunnerFromArgs(args):
     runner = None
     if args.oitimetool is not None:
         if args.oitimetool == True:
@@ -658,7 +676,7 @@ def main():
     args = parser.parse_args()    
     assertFileExist(args.program)
     testProviderList = getProviderListFromArgs(args, parser)
-    runner = getRunnerFromArgs(args, parser)
+    runner = getRunnerFromArgs(args)
     
     if args.checker is not None:
         try:
