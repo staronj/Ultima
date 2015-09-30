@@ -612,6 +612,7 @@ def getRunnerFromArgs(args):
 def testingLoop(testProviderList, runner, args):    
     number_of_fails = 0
     number_of_tests = 0
+    number_of_ignored = 0
     for testProviderArgs in testProviderList:    
         TestProviderClass = testProviderArgs[0]
         testProviderArgs = testProviderArgs[1]
@@ -645,8 +646,16 @@ def testingLoop(testProviderList, runner, args):
                     
                 if args.wait_after_error:
                     waitForKey()
-                          
+            elif runResult.result == "IGNORE":
+                number_of_ignored += 1
+
             print("------------------------")
+
+    print("Total tests: " + str(number_of_tests))
+    print("Ignored: " + str(number_of_ignored))
+    print("Run: " + str(number_of_tests - number_of_ignored))
+    print("Successes: " + str(number_of_tests - number_of_ignored - number_of_fails))
+    print("Failures: " + str(number_of_fails))
 
 
 def main():
