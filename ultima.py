@@ -631,7 +631,7 @@ def testingLoop(testProviderList, runner, args):
             sys.stdout.flush()
             runResult = runner.run(test)         
     
-            print(runResult.result)
+            print("%s, time: %.2f sec" % (runResult.result, runResult.processTime))
             
             number_of_tests += 1
             if runResult.result not in ("OK", "IGNORE"):
