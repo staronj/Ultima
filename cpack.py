@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 try:
     from ultima import *
 except ImportError:
@@ -35,11 +36,50 @@ def getProviderListFromArgs(args, parser):
     return testProviderList
 
 
+class TestExecutor(Functor):
+    def __init__(self, runner, zip_file, break_after_error):
+        Functor.__init__(self)
+        self.runner = runner
+        self.zip_file = zip_file
+        self.break_after_error = break_after_error
+        self.keyboard_interrupt_happened = False
+        self.should_break = False
+        self.done_number = 0
+        self.error_number = 0
+        self.output_lock = threading.Lock()
+
+    def work(self, test):
+        runResult = self.runner.run(test)
+
+        with self.output_lock:
+            if runResult.result not in ("OK", "IGNORE"):
+                print("Error when doing test %s" % test.testName)
+                self.error_number += 1
+                if self.break_after_error:
+                    return
+            else:
+                self.done_number += 1
+
+            sys.stdout.write("\r%s tests done, %s errors." % (self.done_number, self.error_number))
+
+            input_name = "in/%s.in" % test.testName
+            output_name = "out/%s.out" % test.testName
+            self.zip_file.writestr(input_name, test.inputData)
+            self.zip_file.writestr(output_name, runResult.outputData)
+
+    def keyboard_interrupt(self):
+        print("\nKeyboardInterrupt - going to close...")
+        self.keyboard_interrupt_happened = True
+
+    def is_good(self):
+        return not self.keyboard_interrupt_happened and not self.should_break
+
+
 def mainLoop(testProviderList, args):
     runner = BasicRunner(args.program)
     runner.ignoreOutput = True
 
-    output = zipfile.ZipFile(args.output, 'w', zipfile.ZIP_DEFLATED, True)
+    zip_file = zipfile.ZipFile(args.output, 'w', zipfile.ZIP_DEFLATED, True)
 
     for testProviderArgs in testProviderList:
         TestProviderClass = testProviderArgs[0]
@@ -47,24 +87,12 @@ def mainLoop(testProviderList, args):
         print("Processing tests from \"%s\"" % (testProviderArgs,))
         testProvider = TestProviderClass(*testProviderArgs)
 
-        test_number = 0
-        for test in testProvider.getTests():
-            runResult = runner.run(test)
-
-            if runResult.result not in ("OK", "IGNORE"):
-                print("Error when doing test %s" % test.testName)
-                if args.break_after_error:
-                    output.close()
-                    tryDeleteFile(args.output)
-                    return
-
-            test_number += 1
-            sys.stdout.write("\r%s tests done." % test_number)
-
-            inname = "in/%s.in" % test.testName
-            outname = "out/%s.out" % test.testName
-            output.writestr(inname, test.inputData)
-            output.writestr(outname, runResult.outputData)
+        test_executor = TestExecutor(runner, zip_file, args.break_after_error)
+        if args.threads == 1:
+            executor = SequentialExecutor(test_executor, testProvider.getTests())
+        else:
+            executor = ParallelExecutor(test_executor, testProvider.getTests(), args.threads)
+        executor.process()
 
 
 def main():
