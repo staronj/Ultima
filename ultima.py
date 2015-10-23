@@ -10,6 +10,8 @@ import io
 import collections
 import argparse
 import importlib
+from concurrent.futures import ThreadPoolExecutor
+from collections import deque
 
 """
 Ultima - script for testing programs in programing contests.
@@ -247,6 +249,71 @@ def splitTestName(test_name):
         return result[0], int(result[1]), result[2]
 
 
+class Functor:
+    def __init__(self):
+        pass
+
+    def work(self, data):
+        pass
+
+    def keyboard_interrupt(self):
+        pass
+
+    def execute(self, data):
+        try:
+            self.work(data)
+        except KeyboardInterrupt:
+            self.keyboard_interrupt()
+
+    def is_good(self):
+        return True
+
+
+class Executor:
+    def __init__(self, functor, iterable, break_after_error=False):
+        self.functor = functor
+        self.iterable = iterable
+        self.break_after_error = break_after_error
+        self.errors = 0
+
+
+class SequentialExecutor(Executor):
+    def __init__(self, functor, iterable):
+        Executor.__init__(self, functor, iterable)
+
+    def process(self):
+        for element in self.iterable:
+            if not self.functor.is_good():
+                break
+            self.functor.execute(element)
+
+
+class ParallelExecutor(Executor):
+    def __init__(self, functor, iterable, threads):
+        Executor.__init__(self, functor, iterable)
+        self.pool = ThreadPoolExecutor(threads)
+        self.queue = deque()
+        self.threads = threads
+
+    def process(self):
+        for data in self.iterable:
+            if not self.functor.is_good():
+                break
+
+            if len(self.queue) >= 2 * self.threads:
+                self.queue[0].result()
+                self.queue.popleft()
+
+            work = self.pool.submit(self.functor.execute, data)
+            self.queue.append(work)
+
+            while len(self.queue) > 0 and self.queue[0].done():
+                self.queue.popleft()
+
+        while len(self.queue) > 0 and self.queue[0].result():
+            self.queue.popleft()
+
+
 class Test:
     def __init__(self, testName):
         self.testName = testName
@@ -398,12 +465,12 @@ class RandomTest(Test):
         code, _ = callProcess(self.generatorPath, generatorArgsStream, inputStream)
         
         if code != 0:
-            print("\nCritical Error. In generator crash. Exiting.")
+            print("\nCritical Error. Input generator crash. Exiting.")
             exit()
             
         inputData = inputStream.getvalue()
         if len(inputData) == 0:
-            print("\nCritical Error. In generator wrote no output. Exiting.")
+            print("\nCritical Error. Input generator wrote no output. Exiting.")
             exit()
 
         return inputData
@@ -418,7 +485,7 @@ class RandomTest(Test):
         
         modelOutputData = modelOutputStream.getvalue()
         if len(modelOutputData) == 0:
-            print("\nCritical Error. Model wrote no output. Exiting.")
+            print("\nCritical Error. Model solution wrote no output. Exiting.")
             exit()
 
         return modelOutputData
@@ -632,7 +699,7 @@ def testingLoop(testProviderList, runner, args):
             sys.stdout.flush()
             runResult = runner.run(test)         
     
-            print(runResult.result)
+            print("%s, time: %.2f sec" % (runResult.result, runResult.processTime))
             
             number_of_tests += 1
             if runResult.result not in ("OK", "IGNORE"):
@@ -646,10 +713,9 @@ def testingLoop(testProviderList, runner, args):
                     
                 if args.wait_after_error:
                     waitForKey()
+
             elif runResult.result == "IGNORE":
                 number_of_ignored += 1
-
-            print("------------------------")
 
     print("Total tests: " + str(number_of_tests))
     print("Ignored: " + str(number_of_ignored))
@@ -674,9 +740,10 @@ def main():
     parser.add_argument('--time_limit', '-t', help='set execution time limit', type=float)
     parser.add_argument('--oitimetool', '-o', help='use oitimetool, optionally path to oitimetool folder', nargs='?', const="")
     parser.add_argument('--keyword', '-k', help='run only tests with specified keyword in name')
-    parser.add_argument('--break_after', '-b', help='break testing after N fails', type=int, metavar='N' )
-    parser.add_argument('--tests_limit', '-n', help='run only N first tests', type=int, metavar='N' )
-    
+    parser.add_argument('--break_after', '-b', help='break testing after N fails', type=int, metavar='N')
+    parser.add_argument('--tests_limit', '-n', help='run only N first tests', type=int, metavar='N')
+    parser.add_argument('--threads', '-t', help='number of parallel tasks', type=int, default=1)
+
     args = parser.parse_args()    
     assertFileExist(args.program)
     testProviderList = getProviderListFromArgs(args, parser)
