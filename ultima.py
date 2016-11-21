@@ -1,5 +1,12 @@
 ﻿# -*- coding: utf-8 -*-
 import sys
+
+
+if sys.version_info < (3, 0):
+    print("Python version should be 3.0 or more.")
+    exit()
+
+
 import os
 import subprocess
 import time
@@ -17,10 +24,6 @@ from collections import deque
 Ultima - script for testing programs in programing contests.
 Jakub Staroń, 2013 - 2015, for Surykatki FTW
 """
-
-if sys.version_info < (3, 0):
-    print("Python version should be 3.0 or more.")
-    exit()
 
 
 def compareStreams(stream1, stream2):
@@ -742,7 +745,7 @@ def main():
     parser.add_argument('--keyword', '-k', help='run only tests with specified keyword in name')
     parser.add_argument('--break_after', '-b', help='break testing after N fails', type=int, metavar='N')
     parser.add_argument('--tests_limit', '-n', help='run only N first tests', type=int, metavar='N')
-    parser.add_argument('--threads', '-t', help='number of parallel tasks', type=int, default=1)
+    parser.add_argument('--threads', '-p', help='number of parallel tasks', type=int, default=1)
 
     args = parser.parse_args()    
     assertFileExist(args.program)
