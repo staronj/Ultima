@@ -455,6 +455,7 @@ class RandomTest(Test):
         testName = "%s%s%s" % (testNamePrefix, testNumber, testNameSuffix)
         Test.__init__(self, testName)
         self.testNumber = testNumber
+        self.testNameSuffix = testNameSuffix
         self.generatorPath = generatorPath   
         self.modelSolutionPath = modelSolutionPath    
               
@@ -464,7 +465,8 @@ class RandomTest(Test):
     
     def _generateInputData(self):
         inputStream = io.BytesIO()
-        generatorArgsStream = io.BytesIO(str(self.testNumber).encode())
+        generatorInput = "%s %s" % (self.testNumber, self.testNameSuffix)
+        generatorArgsStream = io.BytesIO(generatorInput.encode())
         code, _ = callProcess(self.generatorPath, generatorArgsStream, inputStream)
         
         if code != 0:

@@ -79,7 +79,7 @@ def mainLoop(testProviderList, args):
     runner = BasicRunner(args.program)
     runner.ignoreOutput = True
 
-    zip_file = zipfile.ZipFile(args.output, 'w', zipfile.ZIP_DEFLATED, True)
+    zip_file = zipfile.ZipFile(args.output, 'a', zipfile.ZIP_DEFLATED, True)
 
     for testProviderArgs in testProviderList:
         TestProviderClass = testProviderArgs[0]
@@ -123,8 +123,7 @@ def main():
         args.output += ".zip"
     
     if os.path.isfile(args.output):
-        print("I will not overwrite existing file.")
-        return
+        print("Output file already exists, will be adding new files to archive.")
 
     providerList = getProviderListFromArgs(args, parser)
     mainLoop(providerList, args)
