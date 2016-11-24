@@ -665,6 +665,16 @@ def getProviderListFromArgs(args, parser):
         testName = os.path.splitext(args.program)[0]
         value = (RandomTestProvider, (generatorPath, testName, modelPath))
         testProviderList.append(value)
+
+    if args.generator2 is not None:
+        assertFileExist(args.generator2[0])
+        assertFileExist(args.generator2[2])
+        generatorPath = args.generator2[0]
+        testSuffix = args.generator2[1]
+        modelPath = args.generator2[2]
+        testName = os.path.splitext(args.program)[0]
+        value = (RandomTestProvider, (generatorPath, testName, modelPath, testSuffix))
+        testProviderList.append(value)
         
     return testProviderList
 
@@ -738,7 +748,8 @@ def main():
     sourcesGroup.add_argument('--zip', '-z', help='zip file(s) as test source', nargs='+', default=list())
     sourcesGroup.add_argument('--folder', '-f', help='folder with tests as source', action='append', default=list())
     sourcesGroup.add_argument('--generator', '-g', help='test generator and model solution as test source', nargs=2, metavar=("GEN", "WZO"))
-    
+    sourcesGroup.add_argument('--generator2', '-g2', help='test generator, tests suffix and model solution as test source', nargs=3, metavar=("GEN", "SUF", "WZO"))
+
     parser.add_argument('--checker', '-c', help='provide your own checking function by python script, file must be in the same folder as ultima script')
     parser.add_argument('--wait_after_error', '-w', help='wait for key after failed test', action='store_true', default=False)
     parser.add_argument('--save_to_folder', '-s', help='save failed tests to specified folder', metavar="FOLDER", dest="wrong_folder")
