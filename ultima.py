@@ -2,8 +2,8 @@
 import sys
 
 
-if sys.version_info < (3, 0):
-    print("Python version should be 3.0 or more.")
+if sys.version_info < (3, 3):
+    print("Python version should be 3.3 or more.")
     exit()
 
 
@@ -161,16 +161,17 @@ class AsynchronousStreamRelay(threading.Thread):
 
 def callProcess(commandLine, inputStream, outputStream, timeLimit=float("inf")):
     def timeLimiter(processHandle):
-        pollSeconds = 0.001
         startTime = time.time()
-        deadline = startTime + timeLimit    
-        while time.time() < deadline and processHandle.poll() is None:
-            time.sleep(pollSeconds)
-        processExecutionTime = time.time() - startTime
-        if processHandle.poll() is None:
-            process.terminate()        
-        processHandle.wait()
-        return processExecutionTime
+        try:
+            processHandle.wait(timeout=timeLimit)
+        except subprocess.TimeoutExpired:
+            try:
+                processHandle.terminate()
+            except OSError:
+                # The process finished between exception and `terminate()`
+                pass
+
+        return time.time() - startTime
   
     if isinstance(commandLine, str):
         commandLine = (commandLine,)
@@ -187,7 +188,7 @@ def callProcess(commandLine, inputStream, outputStream, timeLimit=float("inf")):
     stdout_reader.start()
 
     processTime = timeLimiter(process)
-   
+
     stdin_writer.join()    
     stdout_reader.join()    
     process.stdout.close()   
